@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Sturdy — JAMB 2027 Companion</title>
+  <meta name="description" content="Sturdy: the recall-first study companion for JAMB 2027. 1,800 verified questions, spaced review, mistake vault, mock CBT." />
+  <meta name="theme-color" content="#0b1020" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("sturdy.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="boot-splash">
+      <div class="boot-logo">S</div>
+      <div class="boot-name">Sturdy</div>
+    </div>
+  </div>
+  <div id="ambush-root"></div>
+
+  <script src="data/week-01.js"></script>
+  <script src="data/week-02.js"></script>
+  <script src="data/week-03.js"></script>
+  <script src="data/week-04.js"></script>
+  <script src="data/week-05.js"></script>
+  <script src="data/week-06.js"></script>
+  <script src="data/week-07.js"></script>
+  <script src="data/week-08.js"></script>
+  <script src="data/week-09.js"></script>
+  <script src="data/week-10.js"></script>
+  <script src="data/week-11.js"></script>
+  <script src="data/week-12.js"></script>
+  <script src="app/core.js"></script>
+  <script src="app/ui.js"></script>
+  <script src="app/quiz.js"></script>
+  <script src="app/screens-today.js"></script>
+  <script src="app/screens-stats.js"></script>
+  <script src="app/screens-more.js"></script>
+  <script src="app/main.js"></script>
+</body>
+</html>

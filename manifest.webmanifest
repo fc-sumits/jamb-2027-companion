@@ -1,0 +1,14 @@
+{
+  "name": "Sturdy — JAMB 2027 Companion",
+  "short_name": "Sturdy",
+  "description": "Recall-first JAMB 2027 study companion: 1,800 questions, spaced review, mistake vault, full CBT mocks. Works offline.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
