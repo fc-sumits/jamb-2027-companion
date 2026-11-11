@@ -34,4 +34,4 @@ See the [issue tracker](https://github.com/fc-sumits/jamb-2027-companion/issues)
 
 ---
 
-Built with 💛 for Faheem. *Sturdy things are built slowly, on schedule, every day.*
+Built with 💛 for Faheem. Deploy pipeline: push to main → GitHub Actions → Pages. *Sturdy things are built slowly, on schedule, every day.*
