@@ -12,6 +12,9 @@ const App = {
     stats: { render: renderStats, icon: "chart", label: "Stats" },
     more: { render: renderMore, icon: "grid", label: "More" },
     vault: { render: renderVault, icon: "shield", label: "Vault", hidden: true },
+    kits: { render: renderKits, icon: "shield", label: "Repair kits", hidden: true },
+    syllabus: { render: renderSyllabus, icon: "grid", label: "Syllabus", hidden: true },
+    final72: { render: renderFinal72, icon: "flame", label: "Final 72h", hidden: true },
     mock: { render: renderMockSetup, icon: "play", label: "Mock", hidden: true },
     settings: { render: renderSettings, icon: "gear", label: "Settings", hidden: true }
   },
@@ -50,7 +53,11 @@ const App = {
 
   async launchSession(session) {
     // attach ref strings so results can map back to the bank
-    const qs = session.questions.map(q => Object.assign({}, q));
+    let questions = session.questions;
+    if (session.type === "mockday") {
+      questions = Bank.buildMock();
+    }
+    const qs = questions.map(q => Object.assign({}, q));
     if (session.type === "daily") {
       qs.forEach((q, i) => { q.ref = "w" + session.week + ":" + session.dayId + ":" + i; });
     } else if (session.type === "grand") {
@@ -59,10 +66,11 @@ const App = {
     const result = await runQuiz(this.view, {
       title: session.label || session.title || "Session",
       questions: qs,
-      mode: session.mode || "practice",
-      kind: session.type || session.kind || "daily",
+      mode: session.mode || (session.type === "mockday" ? "mock" : "practice"),
+      kind: session.type === "mockday" ? "mock" : (session.type || session.kind || "daily"),
       week: session.week,
-      dayId: session.dayId
+      dayId: session.dayId,
+      mockDate: session.mockDate || null
     });
     if (!result) { this.render(); return; }
 
@@ -96,8 +104,16 @@ const App = {
   }
 };
 
-/* ---------- Pop-up ambushes ---------- */
+/* ---------- Pop-up ambushes (adaptive) ----------
+   Questions are weighted toward cards closest to forgetting
+   (lowest FSRS retrievability). Surviving 3/3 twice in a row
+   escalates the count and pulls harder. */
 let lastAmbush = 0;
+
+async function ambushLevel() {
+  const st = (await DB.get("kv", "ambushStats")) || { streak3: 0 };
+  return Math.min(2, Math.floor((st.streak3 || 0) / 2)); // 0, 1 or 2
+}
 
 function maybeAmbush() {
   const mode = Settings.cache.ambush;
@@ -109,14 +125,26 @@ function maybeAmbush() {
   setTimeout(showAmbush, 90 * 1000); // strikes ~90s after opening Today
 }
 
-function showAmbush() {
+async function showAmbush() {
   if (document.body.classList.contains("in-quiz")) return;
-  const qs = Bank.ambushPool(3);
-  if (!qs.length) return;
+  const level = await ambushLevel();
+  const count = 3 + level; // 3 → 4 → 5 as you prove yourself
+  /* weight toward cards closest to forgetting */
+  const cards = await State.cards();
+  const cardMap = {};
+  cards.forEach(c => { cardMap[c.ref] = c; });
+  const pool = Bank.ambushPool();
+  if (!pool.length) return;
+  const scored = pool.map(q => ({
+    q,
+    w: cardMap[q.ref] ? 1 - SRS.retrievability(cardMap[q.ref]) : 0.5 + Math.random() * 0.25
+  }));
+  scored.sort((a, b) => b.w - a.w);
+  const qs = scored.slice(0, Math.min(count, 14)).map(x => x.q);
   let i = 0, correct = 0;
   const overlay = html`<div class="ambush-overlay">
     <div class="card ambush-card">
-      <span class="chip gold">⚡ Ambush</span>
+      <span class="chip gold">⚡ Ambush${level ? " · level " + (level + 1) : ""}</span>
       <div id="amb-body" style="margin-top:12px"></div>
     </div>
   </div>`;
@@ -127,7 +155,7 @@ function showAmbush() {
     if (i >= qs.length) { finish(); return; }
     const q = qs[i];
     const chip = overlay.querySelector(".chip");
-    if (chip) chip.textContent = "⚡ Ambush · " + (i + 1) + "/3";
+    if (chip) chip.textContent = "⚡ Ambush · " + (i + 1) + "/" + qs.length;
     body.innerHTML = "";
     const block = html`<div>
       <p class="q-text">${q.q}</p>
@@ -158,14 +186,27 @@ function showAmbush() {
 
   async function finish() {
     overlay.remove();
-    U.toast(correct === 3 ? "Ambush survived. 3/3. ⚡" : "Ambush: " + correct + "/3 — misses go to review.", 3600);
-    if (correct < 3) {
+    U.toast(correct === qs.length ? "Ambush survived. " + correct + "/" + qs.length + " ⚡" : "Ambush: " + correct + "/" + qs.length + " — misses go to review.", 3600);
+    // adaptive difficulty stat + daily log only (ambushes never pollute the Vault)
+    const st = (await DB.get("kv", "ambushStats")) || { hits: 0, seen: 0, streak3: 0 };
+    st.hits += correct;
+    st.seen += qs.length;
+    st.streak3 = correct === qs.length ? (st.streak3 || 0) + 1 : 0;
+    await DB.set("kv", "ambushStats", st);
+    const logKey = "log:" + U.todayISO();
+    const log = (await DB.get("kv", logKey)) || { answered: 0, correct: 0, xp: 0, slept: false, braindump: "" };
+    log.answered = (log.answered || 0) + qs.length;
+    log.correct = (log.correct || 0) + correct;
+    log.xp = (log.xp || 0) + correct * 5;
+    await DB.set("kv", logKey, log);
+    if (correct < qs.length) {
       for (const q of qs) {
         const ref = q.ref || ("ambush:" + U.todayISO() + ":" + qs.indexOf(q));
         const card = (await DB.get("cards", ref)) || { ref, ease: 2.5, interval: 0, reps: 0, due: U.todayISO(), lapses: 0 };
         await DB.put("cards", SRS.next(card, 1, Settings.cache.retention));
       }
     }
+    State.invalidate();
   }
 
   showQ();
@@ -181,6 +222,12 @@ async function boot() {
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     try { navigator.serviceWorker.register("sw.js"); } catch (e) { /* offline still works via cache */ }
   }
+
+  // capture the PWA install prompt for the Settings install button
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    window._sturdyInstallEvent = e;
+  });
 }
 
 document.addEventListener("DOMContentLoaded", boot);

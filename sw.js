@@ -1,12 +1,14 @@
 /* Sturdy service worker — offline-first */
-const CACHE = "sturdy-v1";
+const CACHE = "sturdy-v2";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./manifest.webmanifest",
-  "./app/core.js", "./app/ui.js", "./app/quiz.js",
-  "./app/screens-today.js", "./app/screens-stats.js", "./app/screens-more.js", "./app/main.js",
+  "./app/core.js", "./app/ui.js", "./app/ai.js", "./app/youtube.js", "./app/badges.js", "./app/quiz.js",
+  "./app/screens-today.js", "./app/screens-stats.js", "./app/screens-more.js",
+  "./app/screens-syllabus.js", "./app/screens-repair.js", "./app/main.js",
   "./data/week-01.js", "./data/week-02.js", "./data/week-03.js", "./data/week-04.js",
   "./data/week-05.js", "./data/week-06.js", "./data/week-07.js", "./data/week-08.js",
   "./data/week-09.js", "./data/week-10.js", "./data/week-11.js", "./data/week-12.js",
+  "./data/syllabus.js",
   "./icons/icon.svg", "./icons/icon-maskable.svg"
 ];
 

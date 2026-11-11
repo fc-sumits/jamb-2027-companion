@@ -14,11 +14,14 @@ function renderMore(container) {
     </div>
     ${[
       ["vault", "🛠️", "Mistake Vault", "Every wrong answer, tagged and repairable"],
+      ["kits", "🧰", "Repair kits", "February mode: retest + video + teach-back per topic"],
+      ["syllabus", "📋", "Syllabus tracker", "Every topic, auto-ticked as you cover it"],
       ["mock", "🖥️", "Mock mode", "Full 180-question CBT simulation, 2 hours"],
-      ["review", "🔁", "Review queue", "Spaced repetition, exam-paced"],
-      ["stats", "📈", "Stats", "Projected score, streaks, mastery map"],
+      ["review", "🔁", "Review queue", "FSRS spaced repetition, exam-paced"],
+      ["stats", "📈", "Stats", "Projected score, mock chart, badges"],
       ["calendar", "🗓️", "Calendar", "The live programme, date-accurate"],
-      ["settings", "⚙️", "Settings", "Theme, keys, retention, backup"]
+      ["final72", "🏁", "Final 72 hours", "The plan for the last three days"],
+      ["settings", "⚙️", "Settings", "Theme, keys, playlists, retention, backup"]
     ].map(r => {
       const row = html`<button class="row-btn" data-route="${r[0]}">
         <span class="emo">${r[1]}</span>
@@ -60,6 +63,17 @@ async function renderVault(container) {
       <p class="small muted">Re-attempt your worst mistakes until they're clean. Ten old mistakes before every ten new questions — that's the rule.</p>
       <button class="btn primary block big" id="repair-btn">Repair ${Math.min(10, open.length)} mistakes</button>
     </div>` : ""}
+
+    <div class="card">
+      <h3>Card stats <span class="muted tiny" style="font-weight:600">· FSRS memory view</span></h3>
+      <p class="small muted">Every review card with its stability, difficulty and how likely you are to recall it right now.</p>
+      <div id="card-stats"></div>
+    </div>
+
+    <div class="card">
+      <h3>Bookmarked questions <span class="muted tiny" style="font-weight:600">· from practice</span></h3>
+      <div id="bm-list"></div>
+    </div>
 
     <div class="card">
       <h3>All mistakes</h3>
@@ -106,6 +120,63 @@ async function renderVault(container) {
       if (m) { m.tag = sel.value; await DB.put("mistakes", m); U.toast("Tagged: " + sel.value); }
     });
   });
+
+  /* FSRS per-card stats: most forgetable first */
+  const cards = await State.cards();
+  const fading = SRS.fadingCards(cards);
+  const csBox = view.querySelector("#card-stats");
+  if (!fading.length) {
+    csBox.appendChild(html`<p class="small muted">No review cards yet. Wrong or guessed answers land here automatically.</p>`);
+  } else {
+    const attempts = await DB.getAll("attempts");
+    fading.slice(0, 12).forEach(c => {
+      const q = Bank.byRef(c.ref);
+      const ret = Math.round(SRS.retrievability(c) * 100);
+      const ats = attempts.filter(a => a.ref === c.ref);
+      const ok = ats.filter(a => a.correct).length;
+      csBox.appendChild(html`<div class="row">
+        <div class="grow">
+          <div class="title">${q ? q.q.slice(0, 64) : c.ref}</div>
+          <div class="sub">${q ? q.s + " · " : ""}stability ${c.s}d · difficulty ${Math.round(c.d)}/10 · ${ats.length} attempt(s) · ${ok}/${ats.length} right</div>
+        </div>
+        <span class="chip ${ret >= 85 ? "good" : ret >= 60 ? "gold" : "bad"}">${ret}% recall</span>
+      </div>`);
+    });
+  }
+
+  /* bookmarks */
+  const bmMap = (await DB.get("kv", "bookmarks")) || {};
+  const bmBox = view.querySelector("#bm-list");
+  const bmRefs = Object.keys(bmMap).reverse();
+  if (!bmRefs.length) {
+    bmBox.appendChild(html`<p class="small muted">Tap the ☆ during any practice question to pin it here.</p>`);
+  } else {
+    bmRefs.slice(0, 15).forEach(ref => {
+      const q = Bank.byRef(ref);
+      bmBox.appendChild(html`<div class="row">
+        <span class="emo">⭐</span>
+        <div class="grow"><div class="title">${q ? q.q.slice(0, 64) : ref}</div><div class="sub">${q ? q.s : ""} · saved ${bmMap[ref]}</div></div>
+      </div>`);
+    });
+    if (bmRefs.length) {
+      const qzBtn = html`<button class="btn ghost block" style="margin-top:10px">Quiz my bookmarks</button>`;
+      qzBtn.addEventListener("click", async () => {
+        const qs = bmRefs.map(r => Bank.byRef(r)).filter(Boolean);
+        if (!qs.length) { U.toast("Bookmarked questions are no longer in the bank."); return; }
+        const result = await runQuiz(App.view, { title: "Bookmarks", questions: qs, mode: "practice", kind: "review" });
+        for (const a of result.answers) {
+          const card = await DB.get("cards", a.ref);
+          if (!card) continue;
+          const grade = !a.correct ? 0 : (a.confidence === "guessing" ? 1 : a.confidence === "fairly" ? 2 : 3);
+          await DB.put("cards", SRS.next(card, grade, Settings.cache.retention));
+        }
+        await recordSession(result);
+        U.toast("Bookmark quiz banked. ⭐");
+        App.nav("vault");
+      });
+      bmBox.appendChild(qzBtn);
+    }
+  }
 }
 
 /* ---------- Mock setup ---------- */
@@ -168,11 +239,27 @@ async function renderSettings(container) {
 
     <div class="card">
       <h3>API keys <span class="muted tiny" style="font-weight:600">· optional, stored only on this device</span></h3>
-      <label class="field">Groq API key <span class="tiny muted">(AI tutor features)</span></label>
+      <label class="field">Groq API key <span class="tiny muted">(Feynman grader, autopsies, flashcards)</span></label>
       <input type="password" id="set-groq" value="${s.groqKey || ""}" placeholder="gsk_..." />
       <label class="field" style="margin-top:10px">YouTube Data API key <span class="tiny muted">(concept repair videos)</span></label>
       <input type="password" id="set-yt" value="${s.ytKey || ""}" placeholder="AIza..." />
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn ghost" id="test-groq">Test Groq</button>
+        <button class="btn ghost" id="test-yt">Test YouTube</button>
+      </div>
       <p class="tiny muted">Keys never leave your browser except to call Groq/Google directly.</p>
+      <label class="field" style="margin-top:14px">Curated playlists per subject <span class="tiny muted">· playlist ID only (1 quota unit per refresh, cached forever)</span></label>
+      ${["Physics", "Chemistry", "Biology", "English"].map(sub => html`<div style="margin-top:6px">
+        <label class="tiny muted">${sub}</label>
+        <input type="text" class="pl-input" data-sub="${sub}" value="${(s.ytPlaylists && s.ytPlaylists[sub]) || ""}" placeholder="PL..." />
+      </div>`)}
+      <p class="tiny muted">Paste the playlist ID from a YouTube playlist URL (the part after "list="). Videos are matched to topics by title and cached offline.</p>
+    </div>
+
+    <div class="card">
+      <h3>Install as an app</h3>
+      <p class="tiny muted">Android Chrome: tap Install below. iPhone Safari: Share → "Add to Home Screen". Everything works offline once installed.</p>
+      <button class="btn primary block" id="install-btn" style="display:none">📲 Install Sturdy</button>
     </div>
 
     <div class="card">
@@ -202,6 +289,33 @@ async function renderSettings(container) {
 
   view.querySelector("#set-groq").addEventListener("change", e => Settings.save({ groqKey: e.target.value.trim() }));
   view.querySelector("#set-yt").addEventListener("change", e => Settings.save({ ytKey: e.target.value.trim() }));
+
+  view.querySelectorAll(".pl-input").forEach(inp => inp.addEventListener("change", async () => {
+    const pl = Object.assign({}, Settings.cache.ytPlaylists || {});
+    pl[inp.getAttribute("data-sub")] = inp.value.trim();
+    await Settings.save({ ytPlaylists: pl });
+    U.toast("Playlist saved for " + inp.getAttribute("data-sub"));
+  }));
+
+  view.querySelector("#test-groq").addEventListener("click", async () => {
+    try { await AI.chat([{ role: "user", content: "Say OK." }], { maxTokens: 5 }); U.toast("Groq key works ✅"); }
+    catch (e) { U.toast(AI.friendlyError(e), 4200); }
+  });
+  view.querySelector("#test-yt").addEventListener("click", async () => {
+    try { await YT.api("videos", { part: "id", chart: "mostPopular", maxResults: "1" }); U.toast("YouTube key works ✅"); }
+    catch (e) { U.toast(e.code === "NO_KEY" ? "Add the key first." : e.code === "QUOTA_OR_KEY" ? "Key rejected or quota gone." : "Failed: " + e.message, 4200); }
+  });
+
+  const ib = view.querySelector("#install-btn");
+  if (window._sturdyInstallEvent) ib.style.display = "block";
+  ib.addEventListener("click", async () => {
+    const ev = window._sturdyInstallEvent;
+    if (!ev) return;
+    ev.prompt();
+    await ev.userChoice;
+    window._sturdyInstallEvent = null;
+    ib.style.display = "none";
+  });
 
   view.querySelector("#export-btn").addEventListener("click", async () => {
     const data = { exported: U.todayISO(), settings: Settings.cache, cards: await DB.getAll("cards"), mistakes: await DB.getAll("mistakes"), sessions: await DB.getAll("sessions") };

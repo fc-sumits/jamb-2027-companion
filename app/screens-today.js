@@ -35,12 +35,16 @@ async function renderToday(container) {
   const settings = Settings.cache;
   if (!settings.onboarded) { renderOnboarding(container); return; }
 
-  const [doneMap, streak, debt] = await Promise.all([State.doneMap(), streakInfo(), repairDebt()]);
+  const [doneMap, streak, debt, badges] = await Promise.all([
+    State.doneMap(), streakInfo(), repairDebt(), earnedBadges()
+  ]);
   const mission = Prog.todayMission(doneMap);
   const log = (await DB.get("kv", "log:" + U.todayISO())) || { braindump: "", slept: false, answered: 0 };
   const dte = U.daysToExam();
   const doneCount = Object.keys(doneMap).length;
   const totalSessions = Prog.totalDays() + 12;
+  const isSunday = U.isoToDate(U.todayISO()).getDay() === 0;
+  const failCounts = await State.failCounts();
 
   const view = html`<div>
     <div class="topbar">
@@ -67,8 +71,11 @@ async function renderToday(container) {
       </div>
     </div>
 
+    ${dte <= 3 && dte > 0 ? html`<button class="lock-banner final72" id="f72-banner" style="width:100%;text-align:left;cursor:pointer"><span class="ico">🏁</span><div><b>Final 72 hours.</b> The plan for the last three days is ready. Tap to open it.</div></button>` : ""}
+    ${dte === 0 ? html`<div class="lock-banner" style="background:linear-gradient(135deg,var(--gold),var(--gold-2));color:#10142a"><span class="ico">🎯</span><div><b>It's exam day.</b> Eat something familiar, arrive 90 minutes early, and run your two-pass strategy. Everything you did here is in you. Go.</div></div>` : ""}
     ${debt.needsRepair ? html`<div class="lock-banner"><span class="ico">🛠️</span><div><b>Repair first.</b> You have ${debt.openMistakes} open mistakes and ${debt.newSinceReview} new questions since your last review. Your mission starts with a mistake review.</div></div>` : ""}
     ${mission.overdue.length ? html`<div class="lock-banner" style="background:var(--accent-soft);border-color:var(--accent)"><span class="ico">⏰</span><div><b>Catch-up:</b> ${mission.overdue.length} scheduled session(s) behind you. Clear them at your pace — the calendar never moved.</div></div>` : ""}
+    ${isSunday ? html`<div id="weekly-recap"></div>` : ""}
 
     <div class="card" id="mission-card">
       <h2>How is your energy right now?</h2>
@@ -89,8 +96,19 @@ async function renderToday(container) {
         <button class="btn ${log.slept ? "good" : "ghost"}" id="sleep-toggle">${log.slept ? "🌙 7h+ logged" : "😴 I slept 7h+"}</button>
       </div>
     </div>
+
+    <div class="card">
+      <h3>Milestones</h3>
+      ${badgeGrid(badges)}
+      <p class="tiny muted" style="margin-top:8px">Badges unlock themselves as you work. Full gallery in Stats.</p>
+    </div>
   </div>`;
   mount(container, view);
+
+  const f72 = view.querySelector("#f72-banner");
+  if (f72) f72.addEventListener("click", () => App.nav("final72"));
+
+  if (isSunday) renderWeeklyRecap(view.querySelector("#weekly-recap"));
 
   function greeting() {
     const h = new Date().getHours();
@@ -132,6 +150,47 @@ async function renderToday(container) {
   });
 }
 
+/* ---------- Sunday weekly recap ---------- */
+async function renderWeeklyRecap(box) {
+  const today = U.todayISO();
+  const monday = U.addDays(today, -6); // last Monday (today is Sunday)
+  const [sessions, doneMap] = await Promise.all([State.sessions(), State.doneMap()]);
+  const weekSessions = sessions.filter(s => s.date >= monday && s.date <= today);
+  const answered = weekSessions.reduce((a, s) => a + s.total, 0);
+  const acc = weekSessions.length
+    ? Math.round(weekSessions.reduce((a, s) => a + s.pct, 0) / weekSessions.length) : 0;
+
+  // weakest subject of the week
+  const accSum = {}, accN = {};
+  weekSessions.forEach(s => {
+    if (!s.subjectPct) return;
+    Object.keys(s.subjectPct).forEach(sub => {
+      accSum[sub] = (accSum[sub] || 0) + s.subjectPct[sub];
+      accN[sub] = (accN[sub] || 0) + 1;
+    });
+  });
+  let weakest = null;
+  Object.keys(accSum).forEach(sub => {
+    const v = accSum[sub] / accN[sub];
+    if (!weakest || v < weakest.v) weakest = { sub, v: Math.round(v) };
+  });
+
+  // sessions completed this week (from doneMap dates)
+  let doneThisWeek = 0;
+  Object.keys(doneMap).forEach(k => { if (doneMap[k] && doneMap[k].date >= monday && doneMap[k].date <= today) doneThisWeek++; });
+
+  box.appendChild(html`<div class="card recap">
+    <h3>📋 Weekly recap <span class="muted tiny" style="font-weight:600">· ${prettyDate(monday).replace(",", "")} → Saturday</span></h3>
+    <div class="stat-grid" style="margin-top:10px">
+      <div><div class="big-num">${doneThisWeek}</div><div class="tiny muted">sessions done</div></div>
+      <div><div class="big-num">${answered}</div><div class="tiny muted">questions</div></div>
+      <div><div class="big-num">${acc}%</div><div class="tiny muted">average</div></div>
+    </div>
+    ${weakest ? html`<p class="small" style="margin-top:10px">Weakest subject this week: <b style="color:var(--gold)">${weakest.sub} (${weakest.v}%)</b> — give it an extra pass this week.</p>`
+      : html`<p class="small muted" style="margin-top:10px">No sessions yet this week. Sunday is rest — Monday you go again.</p>`}
+  </div>`);
+}
+
 async function buildMission(energy, mission, debt) {
   const parts = [];
 
@@ -145,30 +204,63 @@ async function buildMission(energy, mission, debt) {
 
   const cards = await State.cards();
   const due = SRS.dueCards(cards);
+  const fails = await State.failCounts();
+  const failKey = s => s.type === "daily" ? "w" + s.week + ":" + s.dayId : s.type === "grand" ? "w" + s.week + ":grand" : null;
+  // Don't-Move-On escalation: previously failed sessions bubble to the top
+  const esc = list => list.slice().sort((a, b) => {
+    const fa = (fails[failKey(a)] || {}).count || 0;
+    const fb = (fails[failKey(b)] || {}).count || 0;
+    return fb - fa;
+  });
+  const escNote = s => {
+    const f = fails[failKey(s)];
+    return f && f.count >= 2 ? " · failed " + f.count + "× — going again until it's clean" : "";
+  };
+
+  // weak topics (failed teach-backs) resurface as drills
+  const weak = typeof weakTopics === "function" ? await weakTopics() : [];
+  if (weak.length && energy !== "zombie") {
+    const drillQs = [];
+    const weeks = Bank.weeks();
+    Object.keys(weeks).forEach(w => {
+      (weeks[w].daily || []).forEach(d => {
+        const text = (d.topics || []).join(" · ").toLowerCase();
+        if (weak.some(t => t.name.toLowerCase().split(" ").some(word => word.length > 4 && text.indexOf(word) !== -1))) {
+          d.questions.forEach(q => drillQs.push(Object.assign({}, q)));
+        }
+      });
+    });
+    if (drillQs.length) {
+      parts.push(html`<div class="lock-banner" style="background:var(--gold-soft,rgba(245,196,81,0.12));border-color:var(--gold)"><span class="ico">🟠</span><div><b>Weak topics resurfacing:</b> ${weak.map(t => t.name).join(", ")}. A drill is queued below.</div></div>`);
+      weak._drill = U.shuffle(drillQs).slice(0, 10);
+    }
+  }
 
   if (energy === "zombie") {
     parts.push(html`<p class="small muted">Survival mode: 5 quick recall shots. That's a win for today. 🛟</p>`);
     if (due.length) parts.push(sessionBtn("Review " + Math.min(5, due.length) + " cards", "your scheduled mistakes", { type: "review", limit: 5 }));
     else if (mission.todays.length || mission.overdue.length) {
       const s = mission.todays[0] || mission.overdue[0];
-      const qs = (s.type === "daily" ? s.day.questions : s.grand.questions).slice(0, 5);
-      parts.push(sessionBtn("Micro quiz · 5 questions", s.label, { type: s.type, week: s.week, dayId: s.dayId, day: s.day, grand: s.grand, questions: qs, partial: true }));
+      const qs = (s.type === "daily" ? s.day.questions : s.type === "grand" ? s.grand.questions : null);
+      if (qs) parts.push(sessionBtn("Micro quiz · 5 questions", s.label, { type: s.type, week: s.week, dayId: s.dayId, day: s.day, grand: s.grand, questions: qs.slice(0, 5), partial: true }));
     } else parts.push(html`<p class="small muted">Nothing scheduled — you are ahead. Rest is productive too. 🌙</p>`);
   } else if (energy === "normal") {
     parts.push(html`<p class="small muted">Full loop: today's quiz, then any due review cards.</p>`);
     if (debt.needsRepair) parts.push(sessionBtn("Repair: 10 mistakes", "repair-first rule", { type: "review", limit: 10, mistakesOnly: true }));
-    mission.overdue.slice(0, 2).forEach(s => {
-      parts.push(sessionBtn("Catch-up · " + s.label, s.type === "daily" ? "20 questions" : "50 questions", sessionFromSched(s)));
+    esc(mission.overdue.slice(0, 2)).forEach(s => {
+      parts.push(sessionBtn("Catch-up · " + s.label + escNote(s), s.type === "daily" ? "20 questions" : s.type === "grand" ? "50 questions" : "180 questions · 2 hours", sessionFromSched(s)));
     });
-    mission.todays.forEach(s => {
-      parts.push(sessionBtn(s.label, s.type === "daily" ? "20 questions · pace timer" : "50 questions · weekly checkpoint", sessionFromSched(s)));
+    esc(mission.todays).forEach(s => {
+      parts.push(sessionBtn(s.label + escNote(s), s.type === "daily" ? "20 questions · pace timer" : s.type === "grand" ? "50 questions · weekly checkpoint" : "180 questions · full CBT", sessionFromSched(s)));
     });
-    if (due.length) parts.push(sessionBtn("Review " + Math.min(15, due.length) + " due cards", "spaced repetition", { type: "review", limit: Math.min(15, due.length) }));
+    if (weak._drill) parts.push(sessionBtn("Weak-topic drill · " + weak._drill.length + " questions", "from failed teach-backs", { type: "review", questions: weak._drill, label: "Weak-topic drill" }));
+    if (due.length) parts.push(sessionBtn("Review " + Math.min(15, due.length) + " due cards", "spaced repetition (FSRS)", { type: "review", limit: Math.min(15, due.length) }));
     if (!mission.todays.length && !mission.overdue.length && !due.length) parts.push(html`<p class="small muted">Nothing scheduled today — enjoy the rest day, or run a mock from the More tab.</p>`);
   } else {
     parts.push(html`<p class="small muted">Beast mode: catch-up + today + full review.</p>`);
-    mission.overdue.forEach(s => parts.push(sessionBtn("Catch-up · " + s.label, "", sessionFromSched(s))));
-    mission.todays.forEach(s => parts.push(sessionBtn(s.label, "", sessionFromSched(s))));
+    esc(mission.overdue).forEach(s => parts.push(sessionBtn("Catch-up · " + s.label + escNote(s), "", sessionFromSched(s))));
+    esc(mission.todays).forEach(s => parts.push(sessionBtn(s.label + escNote(s), "", sessionFromSched(s))));
+    if (weak._drill) parts.push(sessionBtn("Weak-topic drill · " + weak._drill.length + " questions", "", { type: "review", questions: weak._drill, label: "Weak-topic drill" }));
     if (due.length) parts.push(sessionBtn("Review all " + due.length + " due cards", "", { type: "review", limit: due.length }));
     if (!mission.todays.length && !mission.overdue.length && !due.length) parts.push(html`<p class="small muted">Nothing scheduled today — Beast mode says: run a mock from the More tab. 💪</p>`);
   }
@@ -179,6 +271,9 @@ async function buildMission(energy, mission, debt) {
 }
 
 function sessionFromSched(s) {
+  if (s.type === "mockday") {
+    return { type: "mockday", mockDate: s.date, questions: null, label: s.label };
+  }
   return {
     type: s.type,
     week: s.week,
@@ -224,6 +319,10 @@ async function renderCalendar(container) {
     if (isExam) { cls += " exam"; tag = "EXAM"; }
     else if (rest && !isToday) { cls += " rest"; }
     else if (hasGrand) { cls += " grandday"; tag = "G"; }
+    else if (items.length && items[0].type === "mockday") {
+      cls += " mockday"; tag = "M";
+      if (isPast) cls += doneMap["mockday:" + iso] ? " done" : " miss";
+    }
     else if (items.length) {
       const w = items[0].week;
       tag = "W" + w;
@@ -260,6 +359,7 @@ async function renderCalendar(container) {
         <span class="chip bad">Missed</span>
         <span class="chip">Daily quiz</span>
         <span class="chip info">G · Grand quiz</span>
+        <span class="chip">M · Full mock</span>
         <span class="chip gold">Exam day</span>
       </div>
     </div>
@@ -290,6 +390,24 @@ async function renderCalendar(container) {
     const card = html`<div class="card"><h3>${prettyDate(iso)}</h3></div>`;
     items.forEach(s => {
       if (s.type === "rest") return;
+      if (s.type === "exam") {
+        card.appendChild(html`<div class="row"><span class="emo">🎯</span><div class="grow"><div class="title">JAMB UTME — exam day</div><div class="sub">Everything since Day 1 was for this morning.</div></div></div>`);
+        return;
+      }
+      if (s.type === "mockday") {
+        const done = dm["mockday:" + iso];
+        const isToday = iso === U.todayISO();
+        const row = html`<div class="row">
+          <div class="grow"><div class="title">${s.label}</div><div class="sub">180 questions · 2 hours · real CBT conditions</div></div>
+          ${done ? html`<span class="chip good">${done.pct}%</span>`
+            : (isToday || iso < U.todayISO()) ? html`<button class="btn primary small">Start</button>`
+            : html`<span class="chip">Scheduled</span>`}
+        </div>`;
+        const btn = row.querySelector("button");
+        if (btn) btn.addEventListener("click", () => App.launchSession(sessionFromSched(s)));
+        card.appendChild(row);
+        return;
+      }
       const key = "w" + s.week + ":" + s.dayId;
       const done = dm[key];
       const isToday = iso === U.todayISO();

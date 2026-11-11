@@ -53,15 +53,36 @@ async function renderReview(container) {
   });
 }
 
+/* ---------- Mock score progression chart (inline SVG) ---------- */
+function mockChart(mocks) {
+  const w = 300, h = 120, pad = 24;
+  const pts = mocks.map((m, i) => ({
+    x: pad + (mocks.length === 1 ? (w - 2 * pad) / 2 : i * (w - 2 * pad) / (mocks.length - 1)),
+    y: h - pad - (h - 2 * pad) * U.clamp(m.pct, 0, 100) / 100,
+    pct: m.pct, date: m.date
+  }));
+  const poly = pts.map(p => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+  return html`<div class="chart-wrap">
+    <svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet">
+      <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" class="chart-axis"></line>
+      <polyline points="${poly}" class="chart-line"></polyline>
+      ${pts.map(p => html`<circle cx="${p.x}" cy="${p.y}" r="4" class="chart-dot"></circle>
+        <text x="${p.x}" y="${p.y - 8}" text-anchor="middle" class="chart-label">${p.pct}</text>`)}
+    </svg>
+    <div class="tiny muted center">${mocks[0].date} → ${mocks[mocks.length - 1].date} · target line = 75% (300/400)</div>
+  </div>`;
+}
+
 /* ---------- Stats dashboard ---------- */
 async function renderStats(container) {
-  const [sessions, streak, proj, mistakes] = await Promise.all([
-    State.sessions(), streakInfo(), projectedScore(), State.mistakes()
+  const [sessions, streak, proj, mistakes, badges] = await Promise.all([
+    State.sessions(), streakInfo(), projectedScore(), State.mistakes(), earnedBadges()
   ]);
   const quizzes = sessions.filter(s => s.kind === "daily" || s.kind === "grand" || s.kind === "mock");
   const avg = quizzes.length
     ? quizzes.reduce((a, s) => a + s.pct, 0) / quizzes.length : 0;
   const answered = quizzes.reduce((a, s) => a + s.total, 0);
+  const mocks = sessions.filter(s => s.kind === "mock").sort((a, b) => a.date < b.date ? -1 : 1);
 
   // last 28 days activity strip
   const cells = [];
@@ -108,6 +129,16 @@ async function renderStats(container) {
     <div class="card">
       <h3>Last 28 days <span class="muted tiny" style="font-weight:600">· no zero days</span></h3>
       <div class="cal" style="margin-top:10px">${cells}</div>
+    </div>
+
+    ${mocks.length ? html`<div class="card">
+      <h3>Mock progression <span class="muted tiny" style="font-weight:600">· ${mocks.length} mock(s)</span></h3>
+      ${mockChart(mocks)}
+    </div>` : ""}
+
+    <div class="card">
+      <h3>Milestones <span class="muted tiny" style="font-weight:600">· ${Object.keys(badges).length}/${BADGES.length} unlocked</span></h3>
+      ${badgeGrid(badges)}
     </div>
 
     ${topicRows.length ? html`<div class="card">

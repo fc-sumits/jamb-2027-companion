@@ -16,6 +16,17 @@ A recall-first study companion built for one mission: **300+ in JAMB 2027** (pra
 - **Pop-up ambushes** — random 3-question recall strikes (off / chill / normal / extreme).
 - **Projected score** — running /400 projection against your 320 target.
 - **Offline PWA** — install it, use it with zero network. Everything is stored on-device (IndexedDB).
+- **FSRS spaced repetition** — full FSRS-4.5 scheduler (per-card stability + difficulty, legacy SM-2 cards migrate automatically), ambushes weighted toward cards closest to forgetting, and per-card recall stats in the Vault.
+- **Quiz player polish** — swipe gestures, pace timer, keyboard shortcuts (1–4, Enter, F), question bookmarking, smooth transitions.
+- **Habit machinery** — streak freezes (one auto-consumed grace token per week), Sundays never break the streak, Sunday weekly recap, milestone badges.
+- **Syllabus tracker + AI tutor** — every JAMB topic auto-ticks as quiz days cover it; teach-it-back mode graded Feynman-style by Groq; failed teach-backs resurface as drills in missions.
+- **Mock CBT realism** — section navigation (English → Physics → Chemistry → Biology), review-after-submit with explanations, and a mock score progression chart.
+- **February revision system** — per-topic repair kits (mistakes + retest + curated YouTube concept video), full-mock Saturdays wired into the calendar, and a Final-72-Hours plan screen.
+- **Android APK** — run the "Build Sturdy Android APK" workflow from the Actions tab to get an installable debug APK (Capacitor wrapper).
+
+## API keys (optional, free tiers)
+
+Groq (AI tutor) and YouTube Data API (repair videos) keys are pasted into **Settings** inside the app. They are stored only in your browser and sent nowhere except Groq/Google directly. YouTube usage is playlist-first (1 quota unit, cached forever); search is only used on an explicit tap.
 
 ## Tech
 
@@ -23,15 +34,3 @@ Zero-build vanilla JS + hand-crafted CSS. No frameworks, no npm, no build step �
 
 ## Development
 
-```
-git clone https://github.com/fc-sumits/jamb-2027-companion
-# open index.html in a browser, or serve the folder statically
-```
-
-## Roadmap
-
-See the [issue tracker](https://github.com/fc-sumits/jamb-2027-companion/issues) for milestones M1–M6: quiz polish, streaks, FSRS upgrades, AI tutor (Groq), concept repair videos (YouTube API), and APK wrapper.
-
----
-
-Built with 💛 for Faheem. Deploy pipeline: push to main → GitHub Actions → Pages. *Sturdy things are built slowly, on schedule, every day.*
