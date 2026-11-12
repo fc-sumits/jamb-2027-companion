@@ -7,7 +7,7 @@
 "use strict";
 
 const AI = {
-  MODEL: "llama-3.3-70b-versatile",
+  MODEL: "gpt-oss-120b",
 
   hash(str) {
     let h = 5381;
