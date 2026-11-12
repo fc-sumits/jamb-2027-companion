@@ -1,19 +1,32 @@
 /* ============================================================
-   Sturdy — Study tab: learn → check → recall
-   Sections → topics → subtopics (Biology fully curated from the
+   Sturdy - Study tab v3: full-screen learn -> check -> recall
+   Sections -> topics -> subtopics (Biology fully curated from the
    3 source playlists; other subjects use the syllabus list).
    Checking a subtopic adds it to your LEARNED POOL. Recall and
    ambushes only ever pull from checked material, cycling the
    least-recently-studied topics first. Notes auto-become FSRS
    flashcards.
+
+   v3 fixes: every screen clears #app before rendering (content
+   no longer stacks on navigation), checkbox toggles update in
+   place (no full re-render, no scroll jump, videos keep playing),
+   the lesson view is full-screen immersive, exiting recall no
+   longer restarts the quiz, and flashcards load with one
+   IndexedDB read instead of one read per card.
    ============================================================ */
 "use strict";
 
+/* leave immersive mode whenever the route changes away from a lesson */
+window.addEventListener("hashchange", () => {
+  if (location.hash.indexOf("lesson") === -1) document.body.classList.remove("immersive");
+});
+
 const Study = {
-  _sel: null,        // selected subject for the tree view
-  _lesson: null,     // unitId for the lesson view
+  _sel: null,         // selected subject for the tree view
+  _lesson: null,      // unitId for the lesson view
   _recallScope: null, // array of units restricting the next recall
-  _ytIndex: null,    // resolved playlist items for this session
+  _ytIndex: null,     // resolved playlist items for this session
+  _studied: null,     // learned-pool map cache (kv "studied")
 
   /* ---------- learned pool (checkboxes) ---------- */
   async studied() {
@@ -196,37 +209,59 @@ function rerenderKeepScroll() {
   App.render().then(() => window.scrollTo(0, y));
 }
 
-/* ---------- subject picker ---------- */
+/* ---------- subject picker (home) ---------- */
 async function renderStudy(view) {
-  if (!Study._sel) {
-    const m = await Study.studied();
-    const cards = Study.subjects().map(s => {
-      const units = Study.unitsFor(s);
-      const done = units.filter(u => m[u.id]).length;
-      const pct = units.length ? Math.round(done / units.length * 100) : 0;
-      const extra = s === "Biology" ? html`<span class="mini-badge">3 playlists · 130+ videos</span>` : "";
-      const card = html`<button class="card sub-row" style="width:100%;text-align:left;border:1px solid var(--line, rgba(128,140,170,.25));margin-bottom:10px">
-        <div style="flex:1">
-          <div style="font-weight:700">${s}</div>
-          <div class="prog-bar" style="margin-top:8px"><div style="width:${pct}%"></div></div>
-          <div class="prog-txt">${done}/${units.length} studied</div>
-        </div>
-        <div class="sub-badges">${extra}</div>
-      </button>`;
-      card.addEventListener("click", () => { Study._sel = s; App.render(); });
-      return card;
-    });
-    view.appendChild(html`<div>
-      <h2 style="margin:4px 0 12px">Study</h2>
-      <p class="prog-txt" style="margin-bottom:14px">Learn a subtopic, check it off, and Recall will only ever quiz you on what you have checked.</p>
-      <div id="study-subjects"></div>
-    </div>`);
-    const box = view.querySelector("#study-subjects");
-    cards.forEach(c => box.appendChild(c));
-    return;
-  }
+  view.innerHTML = ""; // never stack content on re-navigation
+  if (!Study._sel) { await Study.renderHome(view); return; }
   await Study.renderTree(view);
 }
+
+Study.renderHome = async function (view) {
+  const m = await Study.studied();
+  const per = Study.subjects().map(s => {
+    const units = Study.unitsFor(s);
+    const done = units.filter(u => m[u.id]).length;
+    return { s, total: units.length, done, pct: units.length ? Math.round(done / units.length * 100) : 0 };
+  });
+  const totalUnits = per.reduce((a, x) => a + x.total, 0);
+  const totalDone = per.reduce((a, x) => a + x.done, 0);
+  const totalPct = totalUnits ? Math.round(totalDone / totalUnits * 100) : 0;
+
+  const hero = html`<header class="study-hero">
+    <div class="sh-kicker">JAMB 2027 · Learn · Check · Recall</div>
+    <h2 class="sh-title">Study</h2>
+    <p class="sh-sub">Learn a subtopic, check it off, and Recall will only ever quiz you on what you have checked.</p>
+    <div class="sh-meter">
+      <div class="sh-meter-top"><span>${totalDone} of ${totalUnits} subtopics learned</span><strong>${totalPct}%</strong></div>
+      <div class="prog-bar on-hero"><div style="width:${totalPct}%"></div></div>
+    </div>
+  </header>`;
+
+  const loop = html`<div class="study-loop">
+    <span>📖 Learn</span><i>→</i><span>✅ Check</span><i>→</i><span>⚡ Recall</span><i>→</i><span>🃏 Cards</span>
+  </div>`;
+
+  const grid = html`<div class="subj-grid" id="subj-grid"></div>`;
+
+  view.appendChild(hero);
+  view.appendChild(loop);
+  view.appendChild(grid);
+
+  const emo = { English: "📖", Physics: "⚛️", Chemistry: "⚗️", Biology: "🧬" };
+  per.forEach((x, i) => {
+    const tile = html`<button class="subj-tile" style="animation-delay:${i * 70}ms">
+      <span class="subj-emoji">${emo[x.s] || "📘"}</span>
+      <span class="subj-info">
+        <span class="subj-name">${x.s}${x.s === "Biology" ? html`<em class="subj-tag">curated</em>` : ""}</span>
+        <span class="prog-bar"><div style="width:${x.pct}%"></div></span>
+        <span class="prog-txt">${x.done}/${x.total} studied</span>
+      </span>
+      <span class="subj-go">›</span>
+    </button>`;
+    tile.addEventListener("click", () => { Study._sel = x.s; App.render(); });
+    grid.appendChild(tile);
+  });
+};
 
 /* ---------- curriculum tree ---------- */
 Study.renderTree = async function (view) {
@@ -236,18 +271,17 @@ Study.renderTree = async function (view) {
   const done = units.filter(u => m[u.id]).length;
   const pct = units.length ? Math.round(done / units.length * 100) : 0;
 
-  const head = html`<div>
-    <div class="study-head">
+  const head = html`<div class="tree-head">
+    <div class="tree-top">
       <button class="icon-btn" data-act="back">←</button>
       <h2>${subject}</h2>
-      <span class="topic-prog">${done}/${units.length}</span>
+      <span class="tree-count" id="st-count">${done}/${units.length}</span>
     </div>
-    <div class="prog-bar"><div style="width:${pct}%"></div></div>
+    <div class="prog-bar"><div id="st-bar" style="width:${pct}%"></div></div>
     <div class="study-cta">
       <button class="cta-btn" data-act="recall-all">⚡ Recall · 10 questions</button>
       <button class="cta-btn ghost" data-act="cards">🃏 Flashcards</button>
     </div>
-    <div id="study-tree"></div>
   </div>`;
   view.appendChild(head);
 
@@ -255,7 +289,7 @@ Study.renderTree = async function (view) {
   head.querySelector('[data-act="recall-all"]').addEventListener("click", () => { Study._recallScope = null; App.nav("recall"); });
   head.querySelector('[data-act="cards"]').addEventListener("click", () => App.nav("cards"));
 
-  /* group units: section → topic → subs */
+  /* group units: section -> topic -> subs */
   const sections = [];
   units.forEach(u => {
     let sec = sections.find(x => x.name === u.section);
@@ -265,27 +299,31 @@ Study.renderTree = async function (view) {
     top.units.push(u);
   });
 
-  const tree = head.querySelector("#study-tree");
+  const tree = html`<div id="study-tree"></div>`;
+  view.appendChild(tree);
+
   sections.forEach(sec => {
-    const secCard = html`<div class="card sec-card">
+    const secCard = html`<div class="sec-card">
       <p class="sec-title">${sec.name}</p>
       <div class="topic-list"></div>
     </div>`;
     const list = secCard.querySelector(".topic-list");
     sec.topics.forEach(top => {
       const tDone = top.units.filter(u => m[u.id]).length;
-      const block = html`<div class="topic-block">
-        <div class="topic-row">
-          <span style="flex:1">${top.name}</span>
+      const open = tDone < top.units.length; // collapse finished topics
+      const block = html`<div class="topic-block ${open ? "open" : ""}">
+        <button class="topic-row" data-act="fold">
+          <span class="topic-name">${top.name}</span>
           <span class="topic-prog" data-topic="${top.id}">${tDone}/${top.units.length}</span>
-        </div>
-        <div class="sub-list"></div>
+          <span class="fold-chev">▾</span>
+        </button>
+        <div class="sub-list"><div class="sub-list-in"></div></div>
       </div>`;
-      const subs = block.querySelector(".sub-list");
+      const subs = block.querySelector(".sub-list-in");
       top.units.forEach(u => {
         const on = !!m[u.id];
-        const row = html`<div class="sub-row" data-unit="${u.id}">
-          <button class="ckb ${on ? "on" : ""}" data-act="check">✓</button>
+        const row = html`<div class="sub-row ${on ? "done" : ""}" data-unit="${u.id}">
+          <button class="ckb ${on ? "on" : ""}" data-act="check" aria-label="Mark as studied">✓</button>
           <span class="sub-name">${u.name}</span>
           <span class="sub-badges">
             ${u.videos.length ? html`<span class="mini-badge">▶ ${u.videos.length}</span>` : ""}
@@ -293,54 +331,77 @@ Study.renderTree = async function (view) {
             ${!u.recall ? html`<span class="mini-badge">no recall</span>` : ""}
           </span>
         </div>`;
-        row.querySelector('[data-act="check"]').addEventListener("click", async (e) => {
+        const ckb = row.querySelector('[data-act="check"]');
+        ckb.addEventListener("click", async (e) => {
           e.stopPropagation();
-          await Study.toggleStudied(u.id);
-          rerenderKeepScroll();
+          const nowOn = await Study.toggleStudied(u.id);
+          /* in-place update: no re-render, no scroll jump, video keeps playing */
+          ckb.classList.toggle("on", nowOn);
+          row.classList.toggle("done", nowOn);
+          const mm = await Study.studied();
+          const tDone2 = top.units.filter(x => mm[x.id]).length;
+          const tp = block.querySelector(".topic-prog");
+          if (tp) tp.textContent = tDone2 + "/" + top.units.length;
+          const d2 = units.filter(x => mm[x.id]).length;
+          const p2 = units.length ? Math.round(d2 / units.length * 100) : 0;
+          const hc = head.querySelector("#st-count");
+          if (hc) hc.textContent = d2 + "/" + units.length;
+          const hb = head.querySelector("#st-bar");
+          if (hb) hb.style.width = p2 + "%";
         });
         row.addEventListener("click", () => { Study._lesson = u.id; App.nav("lesson"); });
         subs.appendChild(row);
       });
+      block.querySelector('[data-act="fold"]').addEventListener("click", () => block.classList.toggle("open"));
       list.appendChild(block);
     });
     tree.appendChild(secCard);
   });
 };
 
-/* ---------- lesson view ---------- */
+/* ---------- lesson view (full-screen immersive) ---------- */
 async function renderLesson(view) {
+  view.innerHTML = "";
   const unit = Study.unitById(Study._lesson);
   if (!unit) { App.nav("study"); return; }
+  document.body.classList.add("immersive");
   const m = await Study.studied();
   const isStudied = !!m[unit.id];
 
-  const root = html`<div>
-    <div class="study-head">
-      <button class="icon-btn" data-act="back">←</button>
-      <div style="flex:1">
-        <span class="mini-badge">${unit.section || unit.subject}</span>
-        <span class="mini-badge">${unit.topicName}</span>
-        <h2 style="margin:6px 0 0;font-size:19px">${unit.name}</h2>
+  const root = html`<div class="lesson-shell">
+    <header class="lesson-hero">
+      <div class="lh-top">
+        <button class="lh-back" data-act="back" aria-label="Back to Study">←</button>
+        <span class="lh-crumb">${unit.section || unit.subject} · ${unit.topicName}</span>
       </div>
+      <h2 class="lh-title">${unit.name}</h2>
+      <div class="lh-meta" id="lh-meta">${isStudied ? "✓ Studied " + m[unit.id] : (unit.videos.length ? "▶ " + unit.videos.length + " videos · notes · teach-back" : "Notes · teach-back")}</div>
+    </header>
+    <nav class="lesson-nav" id="lesson-nav"></nav>
+    <div class="lesson-body" id="lesson-body"></div>
+    <div class="lesson-dock">
+      <button class="dock-btn ${isStudied ? "on" : ""}" id="dock-mark" data-act="studied">${isStudied ? "✓ Studied · in your recall pool" : "Mark as studied"}</button>
     </div>
-    <button class="tgl-studied ${isStudied ? "on" : ""}" data-act="studied">
-      ${isStudied ? "✓ Studied " + m[unit.id] + " — tap to unmark" : "Mark as studied"}
-    </button>
-    <div id="lesson-body"></div>
   </div>`;
   view.appendChild(root);
 
   root.querySelector('[data-act="back"]').addEventListener("click", () => App.nav("study"));
   root.querySelector('[data-act="studied"]').addEventListener("click", async () => {
-    await Study.toggleStudied(unit.id);
-    rerenderKeepScroll();
+    const nowOn = await Study.toggleStudied(unit.id);
+    /* in-place: the video keeps playing, nothing re-renders */
+    const dock = root.querySelector("#dock-mark");
+    dock.classList.toggle("on", nowOn);
+    dock.textContent = nowOn ? "✓ Studied · in your recall pool" : "Mark as studied";
+    const meta = root.querySelector("#lh-meta");
+    if (meta) meta.textContent = nowOn ? "✓ Studied " + (await Study.studied())[unit.id] : (unit.videos.length ? "▶ " + unit.videos.length + " videos · notes · teach-back" : "Notes · teach-back");
+    U.toast(nowOn ? "Added to your recall pool ⚡" : "Removed from the recall pool", 2600);
   });
 
   const body = root.querySelector("#lesson-body");
 
   /* WATCH */
   if (unit.videos.length) {
-    const watch = html`<div class="card" style="margin-top:14px">
+    const watch = html`<div class="card les-card" id="les-watch">
       <p class="sec-title">▶ Watch</p>
       <div id="watch-body"></div>
     </div>`;
@@ -349,8 +410,8 @@ async function renderLesson(view) {
 
     if (!YT.hasKey()) {
       const p = html`<div>
-        <p class="prog-txt">Add your YouTube API key in Settings to load lesson videos here (about 4 quota units, once — then cached forever).</p>
-        <button class="cta-btn ghost" data-act="tosettings">Open Settings</button>
+        <p class="prog-txt">Add your YouTube API key in Settings to load lesson videos here (about 4 quota units, once, then cached forever).</p>
+        <button class="cta-btn ghost" data-act="tosettings" style="margin-top:10px">Open Settings</button>
       </div>`;
       wb.appendChild(p);
       p.querySelector('[data-act="tosettings"]').addEventListener("click", () => App.nav("settings"));
@@ -382,8 +443,8 @@ async function renderLesson(view) {
   /* READ */
   const tNotes = Study.topicNotes(unit.subject, unit.topicId);
   if (unit.notes.length || tNotes.length) {
-    const read = html`<div class="card" style="margin-top:14px">
-      <p class="sec-title">📝 Read — key facts</p>
+    const read = html`<div class="card les-card" id="les-read">
+      <p class="sec-title">📝 Read: key facts</p>
       <div id="read-body"></div>
     </div>`;
     body.appendChild(read);
@@ -398,9 +459,9 @@ async function renderLesson(view) {
   }
 
   /* TEACH */
-  const teach = html`<div class="card" style="margin-top:14px">
+  const teach = html`<div class="card les-card" id="les-teach">
     <p class="sec-title">🎓 Teach it back (Feynman)</p>
-    <p class="prog-txt">Explain "${unit.name}" in your own words — as if teaching a friend. The AI examiner will grade it.</p>
+    <p class="prog-txt">Explain "${unit.name}" in your own words, as if teaching a friend. The AI examiner will grade it.</p>
     <textarea class="teach-area" id="teach-text" placeholder="So basically…"></textarea>
     <button class="cta-btn" data-act="grade" style="margin-top:10px">Grade my explanation</button>
     <div id="teach-out"></div>
@@ -409,7 +470,7 @@ async function renderLesson(view) {
   teach.querySelector('[data-act="grade"]').addEventListener("click", async () => {
     const txt = (teach.querySelector("#teach-text").value || "").trim();
     const out = teach.querySelector("#teach-out");
-    if (txt.length < 40) { U.toast("Write at least a few sentences — the grader needs substance.", 3200); return; }
+    if (txt.length < 40) { U.toast("Write at least a few sentences: the grader needs substance.", 3200); return; }
     const btn = teach.querySelector('[data-act="grade"]');
     btn.disabled = true; btn.textContent = "Grading…";
     try {
@@ -418,7 +479,7 @@ async function renderLesson(view) {
       tb[unit.id] = { verdict: v.verdict, date: U.todayISO() };
       await DB.set("kv", "teachbacks", tb);
       const box = html`<div class="verdict ${v.verdict === "pass" ? "pass" : "weak"}">
-        <strong>${v.verdict === "pass" ? "✅ Pass — you know this" : "🟠 Weak — revisit before moving on"}</strong>
+        <strong>${v.verdict === "pass" ? "✅ Pass: you know this" : "🟠 Weak: revisit before moving on"}</strong>
         ${v.tip ? html`<p class="prog-txt" style="margin-top:6px">${v.tip}</p>` : ""}
         ${v.wrong && v.wrong.length ? html`<p class="prog-txt" style="margin-top:6px"><strong>Wrong:</strong></p><ul>${v.wrong.map(w => html`<li>${w}</li>`)}</ul>` : ""}
         ${v.missing && v.missing.length ? html`<p class="prog-txt" style="margin-top:6px"><strong>You left out:</strong></p><ul>${v.missing.map(w => html`<li>${w}</li>`)}</ul>` : ""}
@@ -433,7 +494,7 @@ async function renderLesson(view) {
 
   /* TEST */
   if (unit.recall !== false && unit.keys.length) {
-    const test = html`<div class="card" style="margin-top:14px">
+    const test = html`<div class="card les-card" id="les-test">
       <p class="sec-title">⚡ Test</p>
       <button class="cta-btn" data-act="unit-recall">Recall this subtopic · 5 questions</button>
     </div>`;
@@ -443,6 +504,17 @@ async function renderLesson(view) {
       App.nav("recall");
     });
   }
+
+  /* quick-nav chips: jump straight to each section */
+  const nav = root.querySelector("#lesson-nav");
+  [["les-watch", "▶ Watch"], ["les-read", "📝 Read"], ["les-teach", "🎓 Teach"], ["les-test", "⚡ Test"]].forEach(pair => {
+    const el = root.querySelector("#" + pair[0]);
+    if (!el) return;
+    const c = html`<button class="ln-chip">${pair[1]}</button>`;
+    c.addEventListener("click", () => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+    nav.appendChild(c);
+  });
+  if (!nav.children.length) nav.style.display = "none";
 }
 
 /* watch list + embed with chapters */
@@ -459,8 +531,7 @@ Study.renderWatchList = function (wb, unit, items) {
   function play(v) {
     embBox.innerHTML = "";
     embBox.appendChild(YT.embed(v.videoId, v.t, v._start || 0));
-    const chips = embBox.querySelector(".video-wrap");
-    if (v.ch && v.ch.length && chips) {
+    if (v.ch && v.ch.length) {
       const row = html`<div class="chap-row"></div>`;
       v.ch.forEach(c => {
         const chip = html`<button class="chap-chip">${c[0]}</button>`;
@@ -503,6 +574,7 @@ Study.renderWatchList = function (wb, unit, items) {
 
 /* ---------- recall: only studied material ---------- */
 async function renderRecall(view) {
+  view.innerHTML = "";
   const scope = Study._recallScope;
   Study._recallScope = null;
 
@@ -522,7 +594,7 @@ async function renderRecall(view) {
     const empty = html`<div class="card empty-card" style="margin-top:20px">
       <div style="font-size:34px">📚</div>
       <h3 style="margin:10px 0 6px">Your recall pool is too small</h3>
-      <p class="prog-txt">Recall never quizzes you on material you haven't studied. Open the Study tab, learn a subtopic, and check it off — it joins your pool instantly.</p>
+      <p class="prog-txt">Recall never quizzes you on material you haven't studied. Open the Study tab, learn a subtopic, and check it off: it joins your pool instantly.</p>
       <button class="cta-btn" data-act="tostudy" style="margin-top:14px">Go to Study</button>
     </div>`;
     view.appendChild(empty);
@@ -536,7 +608,8 @@ async function renderRecall(view) {
     mode: "practice",
     kind: "recall"
   });
-  if (!result) { App.render(); return; }
+  /* leaving via the quiz's exit must return to Study, not restart the quiz */
+  if (!result) { App.nav("study"); return; }
 
   await recordSession(result);
   if (State && State.invalidate) State.invalidate();
@@ -546,10 +619,11 @@ async function renderRecall(view) {
 
 /* ---------- flashcards derived from studied notes ---------- */
 async function renderCards(view) {
+  view.innerHTML = "";
   const m = await Study.studied();
   const units = Object.keys(m).map(id => Study.unitById(id)).filter(u => u);
   const all = [];
-  for (const u of units) Study.deriveCards(u).forEach(c => all.push(c));
+  units.forEach(u => Study.deriveCards(u).forEach(c => all.push(c)));
   if (!all.length) {
     const empty = html`<div class="card empty-card" style="margin-top:20px">
       <div style="font-size:34px">🃏</div>
@@ -562,8 +636,14 @@ async function renderCards(view) {
     return;
   }
 
+  /* ONE IndexedDB read for the whole store (was one read per card) */
+  let saved = [];
+  try { saved = await DB.getAll("cards"); } catch (e) { saved = []; }
+  const smap = {};
+  saved.forEach(c => { smap[c.ref] = c; });
+  all.forEach(c => { c.srs = smap[c.ref] || null; });
+
   const today = U.todayISO();
-  for (const c of all) c.srs = await DB.get("cards", c.ref);
   const due = all.filter(c => c.srs && (c.srs.due || "") <= today)
     .sort((a, b) => (a.srs.due || "") < (b.srs.due || "") ? -1 : 1);
   const fresh = all.filter(c => !c.srs);
@@ -572,17 +652,20 @@ async function renderCards(view) {
   let i = 0, flipped = false, graded = 0;
   const stage = html`<div class="flash-stage">
     <span class="topic-prog" id="fc-count"></span>
+    <div class="fc-progress"><div id="fc-bar" style="width:0%"></div></div>
     <div id="fc-box" style="width:100%"></div>
   </div>`;
   view.appendChild(stage);
   const box = stage.querySelector("#fc-box");
   const count = stage.querySelector("#fc-count");
+  const bar = stage.querySelector("#fc-bar");
 
   function show() {
     flipped = false;
     if (i >= deck.length) { done(); return; }
     const c = deck[i];
     count.textContent = "Card " + (i + 1) + " / " + deck.length + (c.srs ? " · review" : " · new");
+    bar.style.width = (i / deck.length * 100) + "%";
     box.innerHTML = "";
     const cardEl = html`<div class="flash-card">
       <div class="flash-kicker">${c.unitName}</div>
@@ -616,18 +699,19 @@ async function renderCards(view) {
     try {
       const next = SRS.next(base, g, Settings.cache.retention);
       await DB.put("cards", next);
-    } catch (e) { /* scheduling hiccup must never block the session */ }
+    } catch (e) { /* a scheduling hiccup must never block the session */ }
     graded++;
     i++;
     show();
   }
 
   function done() {
+    bar.style.width = "100%";
     box.innerHTML = "";
     box.appendChild(html`<div class="card empty-card">
-      <div style="font-size:34px">🔥</div>
-      <h3 style="margin:10px 0 6px">Deck cleared — ${graded} graded</h3>
-      <p class="prog-txt">Cards come back right before you'd forget them (FSRS). Check more subtopics to grow the deck.</p>
+      <div style="font-size:34px">${graded ? "🔥" : "🎉"}</div>
+      <h3 style="margin:10px 0 6px">${graded ? "Deck cleared · " + graded + " graded" : "All caught up"}</h3>
+      <p class="prog-txt">${graded ? "Cards come back right before you'd forget them (FSRS). Check more subtopics to grow the deck." : "Every card is scheduled for later: FSRS brings each one back right before you'd forget it."}</p>
       <button class="cta-btn" data-act="back" style="margin-top:14px">Back to Study</button>
     </div>`);
     box.querySelector('[data-act="back"]').addEventListener("click", () => App.nav("study"));

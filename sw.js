@@ -1,5 +1,5 @@
-/* Sturdy service worker — offline-first */
-const CACHE = "sturdy-v3";
+/* Sturdy service worker - offline-first */
+const CACHE = "sturdy-v4";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app/study.css", "./manifest.webmanifest",
   "./app/core.js", "./app/ui.js", "./app/ai.js", "./app/youtube.js", "./app/badges.js", "./app/quiz.js",
