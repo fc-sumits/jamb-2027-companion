@@ -7,7 +7,7 @@
 "use strict";
 
 const AI = {
-  MODEL: "gpt-oss-120b",
+  MODEL: "openai/gpt-oss-120b",
 
   hash(str) {
     let h = 5381;
