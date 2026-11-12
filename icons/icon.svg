@@ -1,11 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f5c451"/>
-      <stop offset="1" stop-color="#e0a92e"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338ca"/>
+      <stop offset="55%" stop-color="#6d28d9"/>
+      <stop offset="100%" stop-color="#9333ea"/>
+    </linearGradient>
+    <linearGradient id="pg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#dde3ff"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#0b1020"/>
-  <rect x="96" y="96" width="320" height="320" rx="80" fill="url(#g)"/>
-  <text x="256" y="332" font-family="-apple-system,Segoe UI,Roboto,sans-serif" font-size="220" font-weight="900" fill="#10142a" text-anchor="middle">S</text>
+  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+  <circle cx="256" cy="210" r="175" fill="#ffffff" opacity="0.07"/>
+  <path d="M256 78 L332 156 L288 156 L288 210 L224 210 L224 156 L180 156 Z" fill="#fbbf24"/>
+  <path d="M256 248 C221 219 166 210 116 219 L116 394 C166 385 221 394 256 423 C291 394 346 385 396 394 L396 219 C346 210 291 219 256 248 Z" fill="url(#pg)"/>
+  <path d="M256 252 L256 418" stroke="#6d28d9" stroke-width="11" stroke-linecap="round"/>
+  <path d="M148 262 C178 257 208 262 230 275" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
+  <path d="M148 308 C178 303 208 308 230 321" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
+  <path d="M148 354 C178 349 208 354 230 367" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
+  <path d="M364 262 C334 257 304 262 282 275" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
+  <path d="M364 308 C334 303 304 308 282 321" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
+  <path d="M364 354 C334 349 304 354 282 367" stroke="#c7d2fe" stroke-width="11" fill="none" stroke-linecap="round"/>
 </svg>

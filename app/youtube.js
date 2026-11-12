@@ -1,5 +1,5 @@
 /* ============================================================
-   Sturdy YouTube — repair-kit concept videos.
+   Sturdy YouTube — repair-kit concept videos + study lessons.
    Quota rules (free tier = 10,000 units/day):
    - playlistItems.list = 1 unit, videos.list = 1 unit (preferred)
    - search.list = 100 units, only on an explicit user tap
@@ -38,7 +38,8 @@ const YT = {
 
   /* Best video for a topic. Strategy:
      1. cache
-     2. user-configured playlist for the subject (playlistItems.list + videos.list = 2 units)
+     2. user-configured playlist(s) for the subject — comma-separated
+        IDs are supported, each fetch is 1 unit per 50 videos
      3. explicit search fallback (search.list = 100 units) — only when opts.allowSearch */
   async repairVideo(topicName, subject, opts) {
     opts = opts || {};
@@ -49,17 +50,21 @@ const YT = {
     }
 
     const playlists = (Settings.cache.ytPlaylists || {});
-    const plId = (playlists[subject] || "").trim();
+    const plIds = String(playlists[subject] || "").split(",").map(s => s.trim()).filter(Boolean);
 
-    if (plId) {
+    if (plIds.length) {
       try {
-        const items = await YT.api("playlistItems", {
-          part: "snippet", playlistId: plId, maxResults: "50"
-        });
-        const vids = (items.items || []).map(it => ({
-          videoId: it.snippet.resourceId.videoId,
-          title: it.snippet.title
-        }));
+        let vids = [];
+        for (const plId of plIds) {
+          const items = await YT.api("playlistItems", {
+            part: "snippet", playlistId: plId, maxResults: "50"
+          });
+          (items.items || []).forEach(it => {
+            if (it.snippet && it.snippet.resourceId) {
+              vids.push({ videoId: it.snippet.resourceId.videoId, title: it.snippet.title });
+            }
+          });
+        }
         const best = YT.bestMatch(vids, topicName);
         if (best) {
           const val = { videoId: best.videoId, title: best.title, from: "playlist" };
@@ -98,11 +103,12 @@ const YT = {
     return bestScore > 0 ? best : vids[0];
   },
 
-  /* zero-quota embed: autoplay off, no related videos */
-  embed(videoId, title) {
+  /* zero-quota embed: autoplay off, no related videos, optional start second */
+  embed(videoId, title, start) {
+    const s = start ? "&start=" + Math.max(0, Number(start) | 0) : "";
     return html`<div class="video-wrap">
       <iframe
-        src="https://www.youtube-nocookie.com/embed/${videoId}?rel=0&autoplay=0"
+        src="https://www.youtube-nocookie.com/embed/${videoId}?rel=0&autoplay=0${s}"
         title="${title || "Concept video"}"
         frameborder="0"
         allow="encrypted-media"

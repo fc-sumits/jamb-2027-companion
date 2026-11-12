@@ -8,9 +8,13 @@ const App = {
   routes: {
     today: { render: renderToday, icon: "home", label: "Today" },
     calendar: { render: renderCalendar, icon: "cal", label: "Calendar" },
+    study: { render: renderStudy, icon: "grid", label: "Study" },
     review: { render: renderReview, icon: "repeat", label: "Review" },
     stats: { render: renderStats, icon: "chart", label: "Stats" },
     more: { render: renderMore, icon: "grid", label: "More" },
+    lesson: { render: renderLesson, icon: "grid", label: "Lesson", hidden: true },
+    recall: { render: renderRecall, icon: "repeat", label: "Recall", hidden: true },
+    cards: { render: renderCards, icon: "repeat", label: "Flashcards", hidden: true },
     vault: { render: renderVault, icon: "shield", label: "Vault", hidden: true },
     kits: { render: renderKits, icon: "shield", label: "Repair kits", hidden: true },
     syllabus: { render: renderSyllabus, icon: "grid", label: "Syllabus", hidden: true },
@@ -107,7 +111,9 @@ const App = {
 /* ---------- Pop-up ambushes (adaptive) ----------
    Questions are weighted toward cards closest to forgetting
    (lowest FSRS retrievability). Surviving 3/3 twice in a row
-   escalates the count and pulls harder. */
+   escalates the count and pulls harder.
+   Learned-pool rule: once you have checked subtopics in the
+   Study tab, ambushes only strike from studied material. */
 let lastAmbush = 0;
 
 async function ambushLevel() {
@@ -133,8 +139,16 @@ async function showAmbush() {
   const cards = await State.cards();
   const cardMap = {};
   cards.forEach(c => { cardMap[c.ref] = c; });
-  const pool = Bank.ambushPool();
+  let pool = Bank.ambushPool();
   if (!pool.length) return;
+  /* learned-pool restriction: only ambush what has been studied */
+  try {
+    const skeys = await Study.studiedKeys();
+    if (skeys.length) {
+      const filtered = pool.filter(q => Study.matchQ(q, skeys));
+      if (filtered.length >= 12) pool = filtered;
+    }
+  } catch (e) { /* study module not ready — keep full pool */ }
   const scored = pool.map(q => ({
     q,
     w: cardMap[q.ref] ? 1 - SRS.retrievability(cardMap[q.ref]) : 0.5 + Math.random() * 0.25
@@ -216,6 +230,18 @@ async function showAmbush() {
 async function boot() {
   await Settings.load();
   document.documentElement.setAttribute("data-theme", Settings.cache.theme);
+
+  // prefill the curated Biology playlists once (user can still edit in Settings)
+  try {
+    const yt = Settings.cache.ytPlaylists || {};
+    if (!yt.Biology) {
+      const bio = "PL11XVymvna4LBiFISDoynUF4SclrMuEny,PLB0IxFe_OTeNVy1HW7FCM61YPk_ps0_4C,PL7BYUWfV903V4Ww-AbFekSWoio8mwJKZ9";
+      Settings.cache.ytPlaylists = Object.assign({}, yt, { Biology: bio });
+      if (typeof Settings.save === "function") await Settings.save({ ytPlaylists: Settings.cache.ytPlaylists });
+      else await DB.set("kv", "settings", Settings.cache);
+    }
+  } catch (e) { /* non-fatal */ }
+
   window.addEventListener("hashchange", () => App.render());
   await App.render();
 
