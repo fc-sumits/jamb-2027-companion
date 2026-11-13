@@ -13,6 +13,12 @@
    the lesson view is full-screen immersive, exiting recall no
    longer restarts the quiz, and flashcards load with one
    IndexedDB read instead of one read per card.
+
+   v3.1 fix: the playlist pagination loop never ran (pageToken
+   started as null and the loop condition rejected it), so the
+   video list could never be fetched. Now fetches page 1 first
+   and follows next page tokens. Also toasts the result so a
+   failed or empty load is visible instead of silent.
    ============================================================ */
 "use strict";
 
@@ -153,7 +159,7 @@ const Study = {
     const items = [];
     for (const plId of vm.playlists) {
       let pageToken = null;
-      for (let page = 0; page < 8 && pageToken !== null; page++) {
+      for (let page = 0; page < 8; page++) {
         const params = { part: "snippet", playlistId: plId, maxResults: "50" };
         if (pageToken) params.pageToken = pageToken;
         const res = await YT.api("playlistItems", params);
@@ -163,6 +169,7 @@ const Study = {
           if (vid) items.push({ videoId: vid, title: sn.title || "", playlist: plId });
         });
         pageToken = res.nextPageToken || null;
+        if (!pageToken) break;
       }
     }
     if (items.length) await DB.set("kv", "study:ytindex", { items, date: U.todayISO() });
@@ -429,6 +436,8 @@ async function renderLesson(view) {
           try {
             Study._ytIndex = await Study.videoIndex(true);
             await DB.set("kv", "study:ytindex", { items: Study._ytIndex, date: U.todayISO() });
+            const n = Study._ytIndex.length;
+            U.toast(n ? "Loaded " + n + " videos from the playlists ✓" : "Loaded 0 videos: double-check the playlist IDs in Settings", 3600);
           } catch (e) {
             U.toast(AI.friendlyError(e), 3800);
           }

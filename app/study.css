@@ -2,18 +2,66 @@
    Sturdy - Study tab v3 styles
    Built on the app's real design tokens (styles.css) plus a
    full-screen immersive lesson mode (body.immersive).
+
+   v3.1: defines .cta-btn / .cta-btn.ghost / .icon-btn, which the
+   old stylesheet used to provide, so primary buttons no longer
+   fall back to raw browser styling.
    ============================================================ */
+
+/* ---------- buttons ---------- */
+.cta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 18px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: transform .1s ease, filter .15s ease;
+}
+.cta-btn:hover { filter: brightness(1.08); }
+.cta-btn:active { transform: scale(.98); }
+.cta-btn:disabled { opacity: .6; cursor: default; }
+.cta-btn.ghost {
+  background: var(--card, #171c2e);
+  color: var(--text, #e7eaf3);
+  border: 1px solid var(--line, #2a3050);
+}
+.cta-btn.ghost:hover { border-color: var(--accent, #6366f1); filter: none; }
+.icon-btn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line, #2a3050);
+  background: var(--card, #171c2e);
+  color: var(--text, #e7eaf3);
+  font-size: 17px;
+  cursor: pointer;
+  transition: transform .1s ease;
+}
+.icon-btn:active { transform: scale(.94); }
 
 /* ---------- home: gradient hero ---------- */
 .study-hero {
   position: relative;
   overflow: hidden;
-  border-radius: calc(var(--radius) + 6px);
+  border-radius: calc(var(--radius, 16px) + 6px);
   padding: 22px 20px;
   margin-bottom: 14px;
   color: #fff;
   background: linear-gradient(135deg, #4338ca 0%, #6d28d9 55%, #9333ea 100%);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.25));
 }
 .study-hero::before {
   content: "";
@@ -90,10 +138,10 @@
   text-align: left;
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: calc(var(--radius) + 2px);
+  border-radius: calc(var(--radius, 16px) + 2px);
   padding: 14px 16px;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.25));
   transition: transform .15s ease, border-color .15s ease;
   animation: st-in .38s both;
   font: inherit;
