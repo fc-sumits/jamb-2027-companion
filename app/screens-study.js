@@ -16,9 +16,12 @@
 
    v3.1 fix: the playlist pagination loop never ran (pageToken
    started as null and the loop condition rejected it), so the
-   video list could never be fetched. Now fetches page 1 first
-   and follows next page tokens. Also toasts the result so a
-   failed or empty load is visible instead of silent.
+   video list could never be fetched.
+
+   v3.2: video loading is now fully in-place with a persistent,
+   inline error box (with the exact API error code and a hint)
+   instead of a transient toast, plus a version tag on the load
+   button so the running code version is always visible.
    ============================================================ */
 "use strict";
 
@@ -211,11 +214,6 @@ const Study = {
 
 /* ================= SCREENS ================= */
 
-function rerenderKeepScroll() {
-  const y = window.scrollY;
-  App.render().then(() => window.scrollTo(0, y));
-}
-
 /* ---------- subject picker (home) ---------- */
 async function renderStudy(view) {
   view.innerHTML = ""; // never stack content on re-navigation
@@ -366,6 +364,62 @@ Study.renderTree = async function (view) {
   });
 };
 
+/* ---------- watch section loader (in-place, with visible errors) ---------- */
+function mountWatch(wb, unit) {
+  wb.innerHTML = "";
+  if (!YT.hasKey()) {
+    const p = html`<div>
+      <p class="prog-txt">Add your YouTube API key in Settings to load lesson videos here (about 4 quota units, once, then cached forever).</p>
+      <button class="cta-btn ghost" data-act="tosettings" style="margin-top:10px">Open Settings</button>
+    </div>`;
+    wb.appendChild(p);
+    p.querySelector('[data-act="tosettings"]').addEventListener("click", () => App.nav("settings"));
+    return;
+  }
+  if (Study._ytIndex && Study._ytIndex.length) {
+    Study.renderWatchList(wb, unit, Study._ytIndex);
+    return;
+  }
+  const b = html`<button class="cta-btn" data-act="load">Load video list from the 3 playlists<small style="display:block;font-weight:400;opacity:.8">v3.2 · ~4 quota units · cached after this</small></button>`;
+  wb.appendChild(b);
+  b.addEventListener("click", () => attemptLoad(wb, unit, b));
+}
+
+async function attemptLoad(wb, unit, btn) {
+  btn.disabled = true;
+  btn.innerHTML = "";
+  btn.appendChild(html`<span>Loading playlists…</span>`);
+  try {
+    Study._ytIndex = await Study.videoIndex(true);
+    const n = Study._ytIndex.length;
+    if (n) await DB.set("kv", "study:ytindex", { items: Study._ytIndex, date: U.todayISO() });
+    U.toast(n ? "Loaded " + n + " videos from the playlists ✓" : "Loaded 0 videos from the playlists", 3200);
+  } catch (e) {
+    Study._ytIndex = null;
+    mountWatchError(wb, unit, e);
+    return;
+  }
+  mountWatch(wb, unit);
+}
+
+function mountWatchError(wb, unit, e) {
+  wb.innerHTML = "";
+  const code = (e && e.code) || "";
+  const msg = (e && e.message) || "Unknown error";
+  let hint = "YouTube returned " + msg + ". Check your connection and retry.";
+  if (code === "NO_KEY") hint = "No YouTube API key found. Add one in Settings.";
+  else if (code === "QUOTA_OR_KEY") hint = "Google rejected the request (403). Check that YouTube Data API v3 is enabled for this key, that today's quota is not used up, and that the key's restrictions allow this website (HTTP referrers).";
+  else if (code === "NETWORK") hint = "Network problem. Check your connection and retry.";
+  const box = html`<div class="yt-error">
+    <strong>⚠️ Couldn't load videos</strong>
+    <p class="prog-txt">${hint}</p>
+    <p class="prog-txt" style="opacity:.6">Code: ${code || msg}</p>
+    <button class="cta-btn ghost" data-act="retry" style="margin-top:8px">Retry</button>
+  </div>`;
+  wb.appendChild(box);
+  box.querySelector('[data-act="retry"]').addEventListener("click", () => attemptLoad(wb, unit, box.querySelector('[data-act="retry"]')));
+}
+
 /* ---------- lesson view (full-screen immersive) ---------- */
 async function renderLesson(view) {
   view.innerHTML = "";
@@ -413,40 +467,7 @@ async function renderLesson(view) {
       <div id="watch-body"></div>
     </div>`;
     body.appendChild(watch);
-    const wb = watch.querySelector("#watch-body");
-
-    if (!YT.hasKey()) {
-      const p = html`<div>
-        <p class="prog-txt">Add your YouTube API key in Settings to load lesson videos here (about 4 quota units, once, then cached forever).</p>
-        <button class="cta-btn ghost" data-act="tosettings" style="margin-top:10px">Open Settings</button>
-      </div>`;
-      wb.appendChild(p);
-      p.querySelector('[data-act="tosettings"]').addEventListener("click", () => App.nav("settings"));
-    } else {
-      let items = Study._ytIndex;
-      if (!items) {
-        try { items = await Study.videoIndex(false); Study._ytIndex = items; }
-        catch (e) { items = []; }
-      }
-      if (!items.length) {
-        const b = html`<button class="cta-btn" data-act="load">Load video list from the 3 playlists<small style="display:block;font-weight:400;opacity:.8">~4 quota units · cached after this</small></button>`;
-        wb.appendChild(b);
-        b.addEventListener("click", async () => {
-          b.disabled = true; b.textContent = "Loading playlists…";
-          try {
-            Study._ytIndex = await Study.videoIndex(true);
-            await DB.set("kv", "study:ytindex", { items: Study._ytIndex, date: U.todayISO() });
-            const n = Study._ytIndex.length;
-            U.toast(n ? "Loaded " + n + " videos from the playlists ✓" : "Loaded 0 videos: double-check the playlist IDs in Settings", 3600);
-          } catch (e) {
-            U.toast(AI.friendlyError(e), 3800);
-          }
-          rerenderKeepScroll();
-        });
-      } else {
-        Study.renderWatchList(wb, unit, items);
-      }
-    }
+    mountWatch(watch.querySelector("#watch-body"), unit);
   }
 
   /* READ */

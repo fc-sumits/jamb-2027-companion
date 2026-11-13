@@ -6,6 +6,7 @@
    v3.1: defines .cta-btn / .cta-btn.ghost / .icon-btn, which the
    old stylesheet used to provide, so primary buttons no longer
    fall back to raw browser styling.
+   v3.2: adds .yt-error for the inline video-load error box.
    ============================================================ */
 
 /* ---------- buttons ---------- */
@@ -404,6 +405,13 @@ body.immersive #app { max-width: 640px; padding: 0; }
 }
 .video-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; }
 .video-wrap iframe { position: absolute; inset: 0; height: 100%; }
+.yt-error {
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, .08);
+  border: 1px solid var(--bad, #ef4444);
+}
+.yt-error strong { display: block; margin-bottom: 4px; }
 .v-row {
   display: flex;
   align-items: center;
